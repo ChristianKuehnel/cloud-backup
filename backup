@@ -1,0 +1,31 @@
+#!/bin/bash
+set -eu
+
+ROOTDIR=$(dirname $(dirname $(realpath $0)))
+CFGFILE=$ROOTDIR/backup.cfg
+HOSTNAME=$(hostname)
+
+if [ ! -f $CFGFILE ] ; then
+  echo Config files does not exist: $CFGFILE
+  exit 1
+fi
+
+echo Using config file: $CFGFILE
+. $CFGFILE
+
+backup_dir() {
+  TARGETPATH=$BACKUP_TARGET/$HOSTNAME/$1
+  echo Backing up $1 to $TARGETPATH ...
+  PASSPHRASE=""  duplicity --encrypt-sign-key $GPG_KEY_ID $1 $TARGETPATH
+}
+
+backup(){
+  for d in ${SOURCE_DIRS[@]}
+  do
+    backup_dir $d
+  done
+
+}
+
+backup
+
