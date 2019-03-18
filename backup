@@ -1,6 +1,5 @@
 #!/bin/bash
 set -eu
-set -x
 
 SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
 ROOTDIR=$(dirname $SCRIPTDIR)
