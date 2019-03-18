@@ -1,11 +1,14 @@
 #!/bin/bash
 set -eu
+set -x
 
-ROOTDIR="$(dirname $(cd "$(dirname "$0")" && pwd))"
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+ROOTDIR=$(dirname $SCRIPTDIR)
 CFGFILE=$ROOTDIR/backup.cfg
 HOSTNAME=$(hostname)
 LOGFILE=$ROOTDIR/backup.log
 NEXTCLOUD_DB_DUMP=/tmp/nextcloud_database.bak
+GET_CONFIG_SCRIPT=$SCRIPTDIR/get_db_config.php
 
 # functions #############
 error() {
@@ -17,8 +20,11 @@ log() {
 }
 
 failure() {
+  if [ ! -z "${NEXTCLOUD_DIR:-}" ] ; then
+    log "disabling maintenance mode..."
+    nextcloud_maintenance_mode --off
+  fi
   error "Execution failed!"
-  # TODO: disable maintenance mode if processing nextcloud 
   trap '' EXIT
   exit -1
 }
@@ -48,17 +54,25 @@ backup_nextcloud(){
     failure
   fi
 
+  # read database configuration from config.php into variables
+  log "Reading Nextcloud config..."
+  eval "$($GET_CONFIG_SCRIPT)"
+  
   nextcloud_maintenance_mode  --on
 
-  #TODO: get vars from config.php
-  #mysqldump --single-transaction -h $dbhost -u $dbuser -p "$dbpassword" $dbname > $NEXTCLOUD_DB_DUMP
+  log "Dumping database into local file..."
+  mysqldump --single-transaction --host=$dbhost --user=$dbuser --password=$dbpassword $dbname > $NEXTCLOUD_DB_DUMP | tee -a $LOGFILE
  
-  #TODO: backup files + database
+  
+  # backup the nextcloud folder and the database dump in one step
+  log "Backing up files and database..."
+  TARGETPATH=$BACKUP_TARGET/$HOSTNAME/nextcloud
+  PASSPHRASE=""  duplicity --encrypt-sign-key $GPG_KEY_ID --include="$1/**" --include="$NEXTCLOUD_DB_DUMP" --exclude="**" / $TARGETPATH | tee -a $LOGFILE
 
-  rm $NEXTCLOUD_DB_DUMP 
+
+  rm -f $NEXTCLOUD_DB_DUMP | tee -a $LOGFILE
   log "resuming nextcloud..."
   nextcloud_maintenance_mode --off 
-  
 }
 
 
