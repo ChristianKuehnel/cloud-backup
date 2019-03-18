@@ -5,6 +5,7 @@ ROOTDIR="$(dirname $(cd "$(dirname "$0")" && pwd))"
 CFGFILE=$ROOTDIR/backup.cfg
 HOSTNAME=$(hostname)
 LOGFILE=$ROOTDIR/backup.log
+NEXTCLOUD_DB_DUMP=/tmp/nextcloud_database.bak
 
 # functions #############
 error() {
@@ -17,6 +18,8 @@ log() {
 
 failure() {
   error "Execution failed!"
+  # TODO: disable maintenance mode if processing nextcloud 
+  trap '' EXIT
   exit -1
 }
 
@@ -34,6 +37,31 @@ backup_dirs(){
 
 }
 
+nextcloud_maintenance_mode(){
+  bash -c "cd /var/www/nextcloud;sudo -u www-data php occ maintenance:mode $1" | tee -a $LOGFILE
+}
+
+backup_nextcloud(){
+  log "Creating backup of nextcloud instance in $1"
+  if [ ! -d $1 ] ; then
+    error "dir not found: $1"
+    failure
+  fi
+
+  nextcloud_maintenance_mode  --on
+
+  #TODO: get vars from config.php
+  #mysqldump --single-transaction -h $dbhost -u $dbuser -p "$dbpassword" $dbname > $NEXTCLOUD_DB_DUMP
+ 
+  #TODO: backup files + database
+
+  rm $NEXTCLOUD_DB_DUMP 
+  log "resuming nextcloud..."
+  nextcloud_maintenance_mode --off 
+  
+}
+
+
 # main #################
 trap failure EXIT
 
@@ -45,8 +73,14 @@ fi
 log "Using config file: $CFGFILE"
 . $CFGFILE
 
+if [ ! -z "${SOURCE_DIRS:-}" ] ; then
+  backup_dirs
+fi
 
-backup_dirs
+
+if [ ! -z "${NEXTCLOUD_DIR:-}" ] ; then
+  backup_nextcloud $NEXTCLOUD_DIR
+fi
 
 log "Done."
 trap '' EXIT
