@@ -8,6 +8,7 @@ HOSTNAME=$(hostname)
 LOGFILE=$ROOTDIR/backup.log
 NEXTCLOUD_DB_DUMP=/tmp/nextcloud_database.bak
 GET_CONFIG_SCRIPT=$SCRIPTDIR/get_db_config.php
+VENV_DIR=$ROOTDIR/venv
 
 # functions #############
 error() {
@@ -26,6 +27,16 @@ failure() {
   error "Execution failed!"
   trap '' EXIT
   exit -1
+}
+
+
+venv(){
+  log "Setting up virtual environment in $VENV_DIR..."
+  if [ ! -d "$VENV_DIR" ] ; then
+   virtualenv $VENV_DIR
+   PS1="$ " source $VENV_DIR/bin/activate
+   pip install --upgrade duplicity paramiko
+  fi
 }
 
 backup_dir() {
@@ -85,6 +96,8 @@ fi
 
 log "Using config file: $CFGFILE"
 . $CFGFILE
+
+venv
 
 if [ ! -z "${SOURCE_DIRS:-}" ] ; then
   backup_dirs
