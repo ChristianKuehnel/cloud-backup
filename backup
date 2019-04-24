@@ -1,5 +1,6 @@
 #!/bin/bash
 set -eu
+set -o pipefail
 
 SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
 ROOTDIR=$(dirname $SCRIPTDIR)
@@ -9,6 +10,8 @@ LOGFILE=$ROOTDIR/backup.log
 NEXTCLOUD_DB_DUMP=/tmp/nextcloud_database.bak
 GET_CONFIG_SCRIPT=$SCRIPTDIR/get_db_config.php
 VENV_DIR=$ROOTDIR/venv
+RESTIC_URL=https://github.com/restic/restic/releases/download/v0.9.5/restic_0.9.5_linux_amd64.bz2
+RESTIC=$ROOTDIR/restic
 
 # functions #############
 error() {
@@ -30,19 +33,9 @@ failure() {
 }
 
 
-venv(){
-  log "Setting up virtual environment in $VENV_DIR..."
-  if [ ! -d "$VENV_DIR" ] ; then
-   virtualenv $VENV_DIR
-   PS1="$ " source $VENV_DIR/bin/activate
-   pip install --upgrade duplicity paramiko pexpect
-  fi
-}
-
 backup_dir() {
-  TARGETPATH=$BACKUP_TARGET/$HOSTNAME/$1
-  log "Backing up $1 to $TARGETPATH ..."
-  PASSPHRASE=""  duplicity --encrypt-sign-key $GPG_KEY_ID $1 $TARGETPATH | tee -a $LOGFILE
+  log "Backing up $1 to $BACKUP_TARGET ..."
+  RESTIC_PASSWORD=$PASSWORD $RESTIC backup -r $BACKUP_TARGET --verbose $1 | tee -a $LOGFILE
 }
 
 backup_dirs(){
@@ -50,7 +43,6 @@ backup_dirs(){
   do
     backup_dir $d
   done
-
 }
 
 nextcloud_maintenance_mode(){
@@ -70,19 +62,40 @@ backup_nextcloud(){
   
   nextcloud_maintenance_mode  --on
 
-  log "Dumping database into local file..."
-  mysqldump --single-transaction --host=$dbhost --user=$dbuser --password=$dbpassword $dbname > $NEXTCLOUD_DB_DUMP | tee -a $LOGFILE
+  log "Dumping database and backing it up..."
+  mysqldump --single-transaction --host=$dbhost --user=$dbuser --password=$dbpassword $dbname \
+     | RESTIC_PASSWORD=$PASSWORD $RESTIC backup -r $BACKUP_TARGET --verbose --stdin --stdin-filename sqldump\
+     | tee -a $LOGFILE
  
   
   # backup the nextcloud folder and the database dump in one step
-  log "Backing up files and database..."
-  TARGETPATH=$BACKUP_TARGET/$HOSTNAME/nextcloud
-  PASSPHRASE=""  duplicity --encrypt-sign-key $GPG_KEY_ID --include="$1/**" --include="$NEXTCLOUD_DB_DUMP" --exclude="**" / $TARGETPATH | tee -a $LOGFILE
+  log "Backing up files..."
+  backup_dir $NEXTCLOUD_DIR 
 
-
-  rm -f $NEXTCLOUD_DB_DUMP | tee -a $LOGFILE
   log "resuming nextcloud..."
   nextcloud_maintenance_mode --off 
+}
+
+cmd_init(){
+  if [ ! -f $RESTIC ] ; then
+    log "getting restic binary..."
+    wget $RESTIC_URL -O ${RESTIC}.bz2
+    bzip2 -d ${RESTIC}.bz2
+    chmod +x $RESTIC
+  fi
+  log "setting up repository at $BACKUP_TARGET.."
+  RESTIC_PASSWORD=$PASSWORD $RESTIC init -r $BACKUP_TARGET
+}
+
+cmd_backup() {
+  if [ ! -z "${SOURCE_DIRS:-}" ] ; then
+    backup_dirs
+  fi
+  
+  
+  if [ ! -z "${NEXTCLOUD_DIR:-}" ] ; then
+    backup_nextcloud $NEXTCLOUD_DIR
+  fi
 }
 
 
@@ -97,16 +110,20 @@ fi
 log "Using config file: $CFGFILE"
 . $CFGFILE
 
-#venv
-
-if [ ! -z "${SOURCE_DIRS:-}" ] ; then
-  backup_dirs
+if [ $# -eq 0 ]
+  then
+    log "No arguments supplied!"
+    log "use one of: init backup"
+    exit -1
 fi
-
-
-if [ ! -z "${NEXTCLOUD_DIR:-}" ] ; then
-  backup_nextcloud $NEXTCLOUD_DIR
-fi
+case $1 in
+init)
+  cmd_init
+  ;;
+backup)
+  cmd_backup
+  ;;
+esac
 
 log "Done."
 trap '' EXIT
