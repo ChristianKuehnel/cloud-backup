@@ -35,7 +35,7 @@ venv(){
   if [ ! -d "$VENV_DIR" ] ; then
    virtualenv $VENV_DIR
    PS1="$ " source $VENV_DIR/bin/activate
-   pip install --upgrade duplicity paramiko
+   pip install --upgrade duplicity paramiko pexpect
   fi
 }
 
@@ -97,7 +97,7 @@ fi
 log "Using config file: $CFGFILE"
 . $CFGFILE
 
-venv
+#venv
 
 if [ ! -z "${SOURCE_DIRS:-}" ] ; then
   backup_dirs
